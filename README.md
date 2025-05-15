@@ -66,7 +66,7 @@ PYTHONPATH=. python scripts/structure_val_imagenet.py --raw_dir "path/to/imagene
 We use Keras CV Attention Models [(Kecam)](https://github.com/leondgarse/keras_cv_attention_models/tree/main) to load vision models. You’ll need to create a metadata file:
 
 ```bash
-PYTHONPATH=. python scripts/kacem_custom_dataset_script.py \
+PYTHONPATH=. python scripts/kecam_custom_dataset_script.py \
   --train_images path/to/imagenet/ILSVRC/Data/CLS-LOC/train \
   --test_images /path/to/imagenet/ILSVRC/Data/CLS-LOC/val \
   -s imagenet_data
