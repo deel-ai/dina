@@ -9,7 +9,7 @@ This repository provides:
 - 🧠 A curated dataset of **precomputed attributions** hosted in a public GCS bucket
 
 > 📂 All attribution files are available at:  
-> **`gs://xai-deel`**
+> **`https://storage.cloud.google.com/xai-deel`**
 
 <details>
 <summary>🧭 Attribution Coverage Table (Click to expand)</summary>
@@ -107,7 +107,7 @@ A preprocessed dataset (~30GB) will also be generated and saved to:
 
 ## 📊 Benchmark Metrics
 
-### 🔹 Fidelity Metrics (Insertion, Deletion)
+### 🔹 Fidelity Metrics (Insertion, Deletion, MuFidelity)
 ```bash
 PYTHONPATH=. python scripts/compute_fidelity.py \
   --model_name "DinoV2" \
@@ -142,6 +142,8 @@ PYTHONPATH=. python scripts/compute_randomization.py \
   --output_dir /dir/to/bench_dir/
 ```
 📍 See: deel/dina/metrics/randomization.py
+
+`metric_name` options: "ModelRandomizationMetric05", "ModelRandomizationMetric01", "RandomLogitMetric"
 
 > [!NOTE]
 > Due to the fact we randomize the model, we cannot run several metrics at once for those ones.
