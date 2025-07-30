@@ -1,9 +1,10 @@
-# ──────────────────────────────────────────────────────
-# This is the code for the leaderboard ranking page
-# ──────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# This is the code for the training time analysis and batch inference time page
+# ──────────────────────────────────────────────────────────────────────────────
 import streamlit as st
-from utils import clean_all_filters, query_parquet_data
-from plotters import plot_leaderboard
+from utils import clean_all_filters, MODEL_LIST, query_parquet_data
+from plotters import plot_training_time, plot_batch_time
+from utils import METRIC_LIST
 
 # ──────────────────────────────────────────────────────────────────────────────────────
 # Code for the Apply Filters button, the selected filters are stored in session state
@@ -27,7 +28,6 @@ def store_selected_filters():
         >>> # Stores current UI filter values in session state
     """
     st.session_state.selected_filters['unique_model'] = st.session_state.model_select
-    st.session_state.selected_filters['unique_metric'] = st.session_state.metric_select
 # ──────────────────────────────────────────────────────────────────────────────────────
 
 # The logic for the dark mode toggle
@@ -61,33 +61,50 @@ with st.sidebar:
         st.button("Clean filters", on_click=clean_all_filters, key="clean_filters_button") # defined in utils.py
     with col2:
         st.button("Apply Filters", on_click=store_selected_filters, key="apply_filters_button")
-
-    # Model filter - single selection for leaderboard focus
-    model_select=st.selectbox(
+     
+    # Model filter
+    model_filter = st.selectbox(
         "Model:",
-        st.session_state.filter_options['model'], # The possible values, which correspond to the existing models in the database
-        index=st.session_state.filter_options['model'].index(st.session_state.selected_filters.get('unique_model', 'MLPMixer')), # Default to MLPMixer if no selection
+        st.session_state.filter_options['model'],
+        index=st.session_state.filter_options['model'].index(st.session_state.selected_filters.get('unique_model', 'MLPMixer')), # Default to X model
         key="model_select"
     )
 
-    # Metric filter - single selection for specific leaderboard ranking
-    metric_select=st.selectbox(
-        "Metric:",
-        st.session_state.filter_options['metric'],
-        index=st.session_state.filter_options['metric'].index(st.session_state.selected_filters.get('unique_metric', 'Deletion')), # Default to Deletion metric
-        key="metric_select"
+    # Subsample Filter
+    subsample_filter=st.number_input(
+        "Subsample Size (recommended < 5,000):",
+        min_value=1,
+        max_value=50000,
+        value=st.session_state.selected_filters.get('subsample_size'),
+        key="subsample_size_input", # Change subsample size when input changes
     )
 
+
+# Execute queries and retrieve data
+df_fidelity = query_parquet_data(st.session_state.selected_filters, mean_values=True, skip_explainer = True, skip_metric=True, unique_model=True, columns=['model', 'activation', 'explainer', 'metric', 'mean', 'std_dev']) # Query fidelity scores
+df_it = query_parquet_data(st.session_state.selected_filters, inference_values=True, skip_explainer=True, unique_model=True,columns=['model', 'activation', 'explainer', 'batch_size', 'mean_time', 'std_time', 'gpu_type'])
 # ─────────────────────────────────────────────────────────────────────────────────────
-# Data querying and processing for leaderboard display
+# Data preprocessing and normalization
 # ─────────────────────────────────────────────────────────────────────────────────────
-df = query_parquet_data(st.session_state.selected_filters, mean_values=True, skip_metric=True, unique_model=True, unique_metric=True, columns=['model', 'activation', 'explainer', 'metric', 'mean', 'std_dev', 'rank'])
+df_it["mean_time_per_sample"] = df_it["mean_time"] / df_it["batch_size"] # Calculate per-sample time from batch time
+df_it["std_time_per_sample"] = df_it["std_time"] / df_it["batch_size"] # Calculate per-sample standard deviation
+df_it['model'] = df_it['model'].replace('ConvNeXtV2', 'ConvNeXtV2Base') # Replace model naming convention from database
+df_it = df_it[df_it['model'].isin(MODEL_LIST)] # Filter to only include valid models from our model list
+
+
+# Process all metrics - each gets its own tab for comparison
+metric_tabs = st.tabs([f"{metric}" for metric in METRIC_LIST]) # Create tabs for each metric
+
+# Filter dataframe for each metric
+df_list = [df_fidelity[df_fidelity['metric'] == metric] for metric in METRIC_LIST]  # Filter by metric using pandas
 
 # ─────────────────────────────────────────────────────────────────────────────────────
-# Display leaderboard table with rankings
+# Display content in tabs - either scatter plots or styled DataFrames
 # ─────────────────────────────────────────────────────────────────────────────────────
-if not df.empty: 
-    st.header(f"Leaderboard for {st.session_state.selected_filters['unique_model']} - {st.session_state.selected_filters['unique_metric']}") # Display the title with selected model and metric
-    plot_leaderboard(df, st, dark_mode=st.session_state.dark_mode) # Generate and display the ranked leaderboard table
-else: 
-    st.info("No data found for the selected model and metric.") # User feedback when no data matches their filter criteria
+for index in range(len(METRIC_LIST)):
+    if not df_list[index].empty:
+        plot_training_time(df_list[index], df_it, metric_tabs[index], plot_key=f"training_plot_{index}")
+        plot_batch_time(df_it, metric_tabs[index], plot_key = f"batch_time_{index}") # Plot batch inference time data
+    else:
+        with metric_tabs[index]: # User feedback when no data matches their filter criteria
+            st.info(f"No data available for {METRIC_LIST[index]} with the selected filters.")

@@ -1,10 +1,9 @@
-# ───────────────────────────────────────────
-# This is the code for the gradient data page
-# ───────────────────────────────────────────
+# ─────────────────────────────────────────────────────
+# This is the code for the rank agreement analysis page
+# ─────────────────────────────────────────────────────
 import streamlit as st
-from utils import clean_all_filters, query_parquet_data
-import streamlit as st
-
+from utils import clean_all_filters, METRIC_LIST, query_parquet_data
+from plotters import plot_rank_agreement
 
 # ──────────────────────────────────────────────────────────────────────────────────────
 # Code for the Apply Filters button, the selected filters are stored in session state
@@ -28,10 +27,6 @@ def store_selected_filters():
         >>> # Stores current UI filter values in session state
     """
     st.session_state.selected_filters['model'] = st.session_state.model_filter
-    st.session_state.selected_filters['explainer'] = st.session_state.explainer_filter
-    st.session_state.selected_filters['metric'] = st.session_state.metric_filter
-    st.session_state.selected_filters['instance'] = st.session_state.instance_input
-    st.session_state.selected_filters['label_prediction'] = st.session_state.label_prediction_filter
 # ──────────────────────────────────────────────────────────────────────────────────────
 
 # The logic for the dark mode toggle
@@ -65,60 +60,23 @@ with st.sidebar:
         st.button("Clean filters", on_click=clean_all_filters, key="clean_filters_button") # defined in utils.py
     with col2:
         st.button("Apply Filters", on_click=store_selected_filters, key="apply_filters_button")
-    
+     
     # Model filter
-    model_filter = st.multiselect( 
+    model_filter = st.multiselect(
         "Model:", 
-        st.session_state.filter_options['model'], # The possible values, which correspond to the existing models in the database 
+        st.session_state.filter_options['model'], # The possible values, which correspond to the existing models in the database
         default=st.session_state.selected_filters.get('model', []), # The selected values are stored in session state, so they persist across pages
         key="model_filter"
     )
-    
-    # Explainer filter
-    explainer_filter = st.multiselect(
-        "Explainer:", 
-        st.session_state.filter_options['explainer'], 
-        default=st.session_state.selected_filters.get('explainer', []),
-        key="explainer_filter"
-    )
-    
-    # Metric filter
-    metric_filter = st.multiselect(
-        "Metric:", 
-        st.session_state.filter_options['metric'], 
-        default=st.session_state.selected_filters.get('metric', []),
-        key="metric_filter"
-    )
-    
-    # Instance filter
-    st.multiselect(
-        "Choose Instance:", 
-        options=st.session_state.selected_filters.get('instance', []), # No values are predefined, the users must input them themselves
-        key="instance_input",
-        default=st.session_state.selected_filters.get('instance', []), # The selected values are stored in session state, so they persist across pages
-        accept_new_options=True # Allows the user to input a new instance
-    )
-    
-    # Label/Prediction filter
-    st.selectbox(
-        "Display Options for Label and Prediction:",
-        options=["Display all", "Display only good predictions", "Display only wrong predictions"],
-        index=0,
-        key="label_prediction_filter",
-    )
 
+df_all = query_parquet_data(st.session_state.selected_filters, mean_values=True, skip_metric=True, skip_explainer=True, columns=['model', 'activation', 'explainer', 'metric', 'rank'])
+df_list = [df_all[df_all['metric'] == metric] for metric in METRIC_LIST]
 
+metric_tabs = st.tabs([f"{metric}" for metric in METRIC_LIST]) # Create tabs for each metric
 
-# ──────────────────────────────────────────────────────────────────────────────────────
-
-df = query_parquet_data(st.session_state.selected_filters, max_rows=1000) # Query the Parquet data with the selected filters
-
-sdf2 = df.style.background_gradient(cmap="YlOrRd", subset=["score"]) # Apply a background gradient to the score column for better visualization
-
-if not df.empty:
-    st.dataframe(sdf2, use_container_width=True, hide_index=True)
-else:
-    st.info("No data found for the selected filters.")
-
-
-
+for index in range(len(METRIC_LIST)):
+    if not df_list[index].empty and len(df_list[index]['model'].unique()) > 1:
+        plot_rank_agreement(df_list[index], metric_tabs[index], plot_key=f"rank_agreement_{index}", dark_mode=st.session_state.dark_mode)
+    else:
+        with metric_tabs[index]:
+            st.info(f"Not enough data available for {METRIC_LIST[index]} with the current filters.")

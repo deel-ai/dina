@@ -1,74 +1,66 @@
 @echo off
-echo Starting data processing pipeline...
 
-echo Alt Step 1: Running wb_alleviater.py
-python wb_alleviater.py
-set WB_ALLEVIATER_RESULT=%errorlevel%
-
-if "%WB_ALLEVIATER_RESULT%"=="0" (
-    echo ✓ wb_alleviater.py completed successfully
-    
-    if exist wb_inference_time.csv (
-        echo Deleting original wb_inference_time.csv...
-        del /f /q wb_inference_time.csv
-    )
-) else (
-    echo ❌ Error: wb_alleviater.py failed with code %WB_ALLEVIATER_RESULT%
+REM Check if an argument was provided
+if "%1"=="" (
+    echo Usage: preprocess.bat ^<input_filename^>
+    echo Example: preprocess.bat my_custom_file.csv
     exit /b 1
 )
 
-echo Step 1: Running alleviater.py...
-python alleviater.py
-set ALLEVIATER_RESULT=%errorlevel%
-echo Debug: alleviater.py returned error level %ALLEVIATER_RESULT%
+REM Store the argument in a variable for clarity
+set INPUT_FILE=%1
 
-if "%ALLEVIATER_RESULT%"=="0" (
-    echo ✓ alleviater.py completed successfully
-    
-    if exist agg_fidelity.csv (
-        echo Deleting original agg_fidelity.csv...
-        del /f /q agg_fidelity.csv
+echo Starting data processing pipeline with input file: %INPUT_FILE%
+
+REM Check if the input file exists
+if not exist "%INPUT_FILE%" (
+    echo ❌ Error: Input file "%INPUT_FILE%" not found
+    exit /b 1
+)
+
+REM Extract filename without extension and create parquet filename
+for /f "delims=" %%i in ("%INPUT_FILE%") do (
+    set PARQUET_FILE=%%~ni.parquet
+)
+
+echo Step 1: Running alleviater.py with %INPUT_FILE%...
+python csv_to_parquet.py "%INPUT_FILE%"
+
+if %errorlevel%==0 (
+    echo ✓ csv_to_parquet.py completed successfully
+    echo ✓ Created %PARQUET_FILE%
+
+    if exist "%INPUT_FILE%" (
+        echo Deleting original %INPUT_FILE%...
+        del /f /q "%INPUT_FILE%"
     )
     
-    echo Creating streamlit_partition directory...
-    if not exist streamlit_partition (
-        mkdir streamlit_partition
-        echo ✓ streamlit_partition directory created
-    ) else (
-        echo ⚠️ streamlit_partition directory already exists
-    )
-    
-    echo Step 2: Running streamlit_partitionner.py...
-    python streamlit_partitionner.py
-    set PARTITIONER_RESULT=%errorlevel%
-    
-    if "%PARTITIONER_RESULT%"=="0" (
-        echo ✓ streamlit_partitionner.py completed successfully
+    echo Step 2: Running normalize_parquet.py with %PARQUET_FILE%...
+    python normalize_parquet.py "%PARQUET_FILE%"
+
+    if %errorlevel%==0 (
+        echo ✓ normalize_parquet.py completed successfully
         
-        if exist all_agg_fidelity.csv (
-            echo Deleting all_agg_fidelity.csv...
-            del /f /q all_agg_fidelity.csv
+        if exist "%PARQUET_FILE%" (
+            echo Deleting "%PARQUET_FILE%"...
+            del /f /q "%PARQUET_FILE%"
         )
         
-        echo Step 3: Running mean_convert.py...
-        python mean_convert.py
-        set CONVERT_RESULT=%errorlevel%
-        
-        if "%CONVERT_RESULT%"=="0" (
-            echo ✓ mean_convert.py completed successfully
+        echo Step 3: Running parquet_to_mean_parquet.py...
+        python parquet_to_mean_parquet.py
+
+        if %errorlevel%==0 (
+            echo ✓ parquet_to_mean_parquet.py completed successfully
             echo 🎉 Data processing pipeline completed!
         ) else (
-            echo ❌ Error: mean_convert.py failed with code %CONVERT_RESULT%
+            echo ❌ Error: parquet_to_mean_parquet.py failed with code %errorlevel%
             exit /b 1
         )
     ) else (
-        echo ❌ Error: streamlit_partitionner.py failed with code %PARTITIONER_RESULT%
+        echo ❌ Error: normalize_parquet.py failed with code %errorlevel%
         exit /b 1
     )
 ) else (
-    echo ❌ Error: alleviater.py failed with code %ALLEVIATER_RESULT%
+    echo ❌ Error: csv_to_parquet.py failed with code %errorlevel%
     exit /b 1
 )
-
-
-pause

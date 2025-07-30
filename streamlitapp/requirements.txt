@@ -1,8 +1,8 @@
 streamlit
-duckdb
 pandas
 plotly
 seaborn
 tqdm
 streamlit-aggrid
 matplotlib
+numpy

@@ -1,9 +1,10 @@
-# ──────────────────────────────────────────────────────
-# This is the code for the leaderboard ranking page
-# ──────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────
+# This is the code for the subsample agreement analysis page
+# ──────────────────────────────────────────────────────────
 import streamlit as st
 from utils import clean_all_filters, query_parquet_data
-from plotters import plot_leaderboard
+from plotters import WHICHISBETTER, display_ranking_correlation_analysis
+import random
 
 # ──────────────────────────────────────────────────────────────────────────────────────
 # Code for the Apply Filters button, the selected filters are stored in session state
@@ -26,8 +27,8 @@ def store_selected_filters():
         >>> store_selected_filters()
         >>> # Stores current UI filter values in session state
     """
-    st.session_state.selected_filters['unique_model'] = st.session_state.model_select
     st.session_state.selected_filters['unique_metric'] = st.session_state.metric_select
+    st.session_state.selected_filters['subsample'] = random.sample(range(1,50001), st.session_state.subsample_filter)
 # ──────────────────────────────────────────────────────────────────────────────────────
 
 # The logic for the dark mode toggle
@@ -62,14 +63,6 @@ with st.sidebar:
     with col2:
         st.button("Apply Filters", on_click=store_selected_filters, key="apply_filters_button")
 
-    # Model filter - single selection for leaderboard focus
-    model_select=st.selectbox(
-        "Model:",
-        st.session_state.filter_options['model'], # The possible values, which correspond to the existing models in the database
-        index=st.session_state.filter_options['model'].index(st.session_state.selected_filters.get('unique_model', 'MLPMixer')), # Default to MLPMixer if no selection
-        key="model_select"
-    )
-
     # Metric filter - single selection for specific leaderboard ranking
     metric_select=st.selectbox(
         "Metric:",
@@ -78,16 +71,35 @@ with st.sidebar:
         key="metric_select"
     )
 
-# ─────────────────────────────────────────────────────────────────────────────────────
-# Data querying and processing for leaderboard display
-# ─────────────────────────────────────────────────────────────────────────────────────
-df = query_parquet_data(st.session_state.selected_filters, mean_values=True, skip_metric=True, unique_model=True, unique_metric=True, columns=['model', 'activation', 'explainer', 'metric', 'mean', 'std_dev', 'rank'])
+    # Subsample Filter
+    subsample_filter=st.number_input(
+        "Subsample Size (recommended < 5,000):",
+        min_value=1,
+        max_value=50000,
+        value=len(st.session_state.selected_filters.get('subsample')),
+        key="subsample_filter", # Change subsample size when input changes
+    )
 
-# ─────────────────────────────────────────────────────────────────────────────────────
-# Display leaderboard table with rankings
-# ─────────────────────────────────────────────────────────────────────────────────────
-if not df.empty: 
-    st.header(f"Leaderboard for {st.session_state.selected_filters['unique_model']} - {st.session_state.selected_filters['unique_metric']}") # Display the title with selected model and metric
-    plot_leaderboard(df, st, dark_mode=st.session_state.dark_mode) # Generate and display the ranked leaderboard table
-else: 
-    st.info("No data found for the selected model and metric.") # User feedback when no data matches their filter criteria
+df = query_parquet_data(st.session_state.selected_filters, mean_values=True, skip_model=True, skip_explainer=True, unique_metric=True, columns=['model', 'activation', 'explainer', 'metric', 'mean', 'std_dev', 'rank'])
+df_sub = query_parquet_data(st.session_state.selected_filters, subsample=True, skip_model=True, skip_explainer=True, unique_metric=True, max_rows=1000000, columns=['model', 'activation', 'explainer', 'metric', 'score'])
+
+# ──────────────────────
+# Add rankings to df_sub
+# ──────────────────────
+# Calculate the mean across all instances of the subsample
+df_sub = df_sub.groupby(['model', 'explainer', 'metric'])['score'].agg(['mean', 'std']).reset_index()
+
+# Flatten the column names and rename appropriately
+df_sub.columns = ['model', 'explainer', 'metric', 'mean', 'std_dev']
+
+# Add rankings based on the mean score
+df_sub['mean'] = df_sub['mean'].round(3)
+df_sub['std_dev'] = df_sub['std_dev'].round(3)
+
+df_sub['rank'] = df_sub.groupby('model')['mean'].rank(ascending=WHICHISBETTER[st.session_state.selected_filters['unique_metric']] == "Lower is better", method='min')
+df_sub['rank'] = df_sub['rank'].astype(int)  # Convert rank to integer type for better readability
+
+df = df.drop(columns=['activation'])
+
+
+display_ranking_correlation_analysis(df, df_sub, st)
